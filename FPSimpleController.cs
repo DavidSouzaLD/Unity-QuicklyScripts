@@ -1,7 +1,10 @@
-using UnityEngine;
+// Works for rigid body mobile platforms when used with speeds or MovePosition/MoveRotation
+
 // Hierarchy
 // Player (Transform - Rigidbody - Collider)
 //      -> Camera
+using UnityEngine;
+
 public class FPSimpleController : MonoBehaviour
 {
     [Header("Movement")]
