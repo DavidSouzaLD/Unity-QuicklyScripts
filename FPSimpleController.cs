@@ -1,4 +1,4 @@
-// Works for rigid body mobile platforms when used with speeds or MovePosition/MoveRotation
+// Works for rigid body moving platforms when used with speeds or MovePosition/MoveRotation
 
 // Hierarchy
 // Player (Transform - Rigidbody - Collider)
