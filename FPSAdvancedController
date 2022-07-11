@@ -3,7 +3,7 @@ using UnityEngine;
 [RequireComponent(typeof(CharacterInput))]
 [RequireComponent(typeof(Rigidbody))]
 [RequireComponent(typeof(CapsuleCollider))]
-public class FPSCharacterController : MonoBehaviour
+public class FPSAdvancedController : MonoBehaviour
 {
     [Header("Movement Settings:")]
     [SerializeField] private float walkAcceleration = 10f;
