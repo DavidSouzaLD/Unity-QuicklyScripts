@@ -1,0 +1,342 @@
+using UnityEngine;
+
+[RequireComponent(typeof(CharacterInput))]
+[RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(CapsuleCollider))]
+public class FPSCharacterController : MonoBehaviour
+{
+    [Header("Movement Settings:")]
+    [SerializeField] private float walkAcceleration = 10f;
+    [SerializeField] private float runAcceleration = 15f;
+
+    [Header("Limit Settings:")]
+    [SerializeField] private float limitWalkVelocity = 5f;
+    [SerializeField] private float limitRunVelocity = 7f;
+
+    [Header("Jump Settings:")]
+    [SerializeField] private float jumpForce = 25f;
+
+    [Header("Drag Settings:")]
+    [SerializeField] private float initialDrag = 0.5f;
+    [SerializeField] private float drag = 5f;
+
+    [Header("Slope Settings:")]
+    [SerializeField] private float normalCheckDistance;
+    [SerializeField] private float normalCheckRadius;
+    [SerializeField] private float maxAngleToSlope;
+
+    [Header("Ground Settings:")]
+    [SerializeField] private LayerMask groundableMask;
+    [SerializeField] private float groundHeightOffset = 0.45f;
+    [SerializeField] private float groundRadiusOverride = 0f;
+
+    [Header("Camera Settings:")]
+    [SerializeField] private float cameraSmooth = 20f;
+    [SerializeField] private Vector2 sensitivity = new Vector2(1.5f, 1.5f);
+
+    [Header("Rigidbody Settings:")]
+    [SerializeField] private bool UseGravity = true;
+    [SerializeField] private bool IsKinematic = false;
+    [SerializeField] private float Mass = 5f;
+
+    [Header("Collider Settings:")]
+    [SerializeField] private float Height = 2f;
+    [SerializeField] private float Radius = 0.5f;
+    [SerializeField] private Vector3 Center = Vector3.zero;
+    [SerializeField] private PhysicMaterial PhysicsMaterial;
+
+    Vector2 cameraRot = Vector2.zero;
+    Quaternion characterTargetRot, cameraTargetRot;
+
+    float _jumpFixTimer = 0f;
+
+    private Camera Camera;
+    private CharacterInput Input;
+    private Rigidbody Rigidbody;
+    private CapsuleCollider CapsuleCollider;
+
+    public float CurrentSpeed
+    {
+        get
+        {
+            if (Input)
+            {
+                return !Input.Run ? walkAcceleration : runAcceleration;
+            }
+
+            return 0;
+        }
+    }
+
+    public float LimitCurrentSpeed
+    {
+        get
+        {
+            if (Input)
+            {
+                return !Input.Run ? limitWalkVelocity : limitRunVelocity;
+            }
+
+            return 0;
+        }
+    }
+
+    public float SlopeAngle
+    {
+        get
+        {
+            return Vector3.Angle(transform.up, Normal);
+        }
+    }
+
+    public Vector3 Normal
+    {
+        get
+        {
+            RaycastHit hit;
+
+            if (Physics.SphereCast(transform.position, normalCheckRadius, -transform.up, out hit, normalCheckDistance, groundableMask))
+            {
+                Debug.DrawRay(hit.point, hit.normal, Color.yellow);
+                return hit.normal;
+            }
+
+            return Vector3.one;
+        }
+    }
+
+    public bool Grounded
+    {
+        get
+        {
+            return GroundColliders.Length > 0;
+        }
+    }
+
+    public bool Sloped
+    {
+        get
+        {
+            return SlopeAngle <= maxAngleToSlope;
+        }
+    }
+
+    public Collider[] GroundColliders
+    {
+        get
+        {
+            Vector3 pos = (transform.position + CapsuleCollider.center) - (transform.up * ((CapsuleCollider.height / 2f) + groundHeightOffset));
+            float radius = CapsuleCollider.radius + groundRadiusOverride;
+
+            Collider[] hits = Physics.OverlapSphere(pos, radius, groundableMask);
+
+            return hits;
+        }
+    }
+
+    public Rigidbody AttachedRigidbody
+    {
+        get
+        {
+            Rigidbody rb = null;
+
+            for (int i = 0; i < GroundColliders.Length; i++)
+            {
+                if (GroundColliders[i].GetComponent<Rigidbody>())
+                {
+                    rb = GroundColliders[i].GetComponent<Rigidbody>();
+                }
+            }
+
+            return rb;
+        }
+    }
+
+    private void OnValidate()
+    {
+        // Rigidbody
+        if (Rigidbody)
+        {
+            if (Rigidbody.hideFlags != HideFlags.NotEditable || Rigidbody.isKinematic != IsKinematic || Rigidbody.useGravity != UseGravity || Rigidbody.mass != Mass)
+            {
+                Rigidbody.hideFlags = HideFlags.NotEditable;
+                Rigidbody.isKinematic = IsKinematic;
+                Rigidbody.useGravity = UseGravity;
+                Rigidbody.mass = Mass;
+            }
+        }
+        else
+        {
+            Rigidbody = GetComponent<Rigidbody>();
+        }
+
+        // Collider
+        if (CapsuleCollider)
+        {
+            if (CapsuleCollider.hideFlags != HideFlags.NotEditable || CapsuleCollider.height != Height || CapsuleCollider.radius != Radius ||
+                CapsuleCollider.center != Center || CapsuleCollider.material != PhysicsMaterial)
+            {
+                CapsuleCollider.hideFlags = HideFlags.NotEditable;
+                CapsuleCollider.height = Height;
+                CapsuleCollider.radius = Radius;
+                CapsuleCollider.center = Center;
+                CapsuleCollider.material = PhysicsMaterial;
+            }
+        }
+        else
+        {
+            CapsuleCollider = GetComponent<CapsuleCollider>();
+        }
+    }
+
+    private void Start()
+    {
+        // Get necessary components
+        Camera = GetComponentInChildren<Camera>();
+        Input = GetComponent<CharacterInput>();
+        Rigidbody = GetComponent<Rigidbody>();
+        CapsuleCollider = GetComponent<CapsuleCollider>();
+
+        // Start locking cursor
+        LockCursor(true);
+
+        // Starting rotations
+        characterTargetRot = transform.localRotation;
+        cameraTargetRot = Camera.transform.localRotation;
+    }
+
+    private void FixedUpdate()
+    {
+        // Movement
+        Vector2 moveAxis = Input.MoveAxis;
+        Vector3 dir1 = transform.forward * moveAxis.y + transform.right * moveAxis.x;
+        Vector3 dir2 = Vector3.Cross(transform.right, Normal) * moveAxis.y + Vector3.Cross(-transform.forward, Normal) * moveAxis.x;
+        Vector3 direction = !Sloped ? dir1 : dir2;
+
+        // Direction Ray
+        Debug.DrawRay(transform.position, direction * 2f, Color.magenta);
+
+        if (moveAxis != Vector2.zero)
+        {
+            if (Rigidbody.drag != initialDrag)
+            {
+                Rigidbody.drag = initialDrag;
+            }
+
+            if (Grounded)
+            {
+                Rigidbody.AddForce(direction.normalized * CurrentSpeed * 10f, ForceMode.Force);
+            }
+        }
+        else
+        {
+            if (Grounded)
+            {
+                Rigidbody.drag = drag;
+            }
+            else
+            {
+                Rigidbody.drag = initialDrag;
+            }
+        }
+
+        // Remove gravity if stay in ground
+        Rigidbody.useGravity = !Grounded;
+
+        // Limit Velocity
+        Vector3 flatVel = new Vector3(Rigidbody.velocity.x, 0f, Rigidbody.velocity.z);
+
+        if (flatVel.magnitude > LimitCurrentSpeed)
+        {
+            Vector3 limitedVel = flatVel.normalized * LimitCurrentSpeed;
+            Rigidbody.velocity = new Vector3(limitedVel.x, Rigidbody.velocity.y, limitedVel.z);
+        }
+    }
+
+    private void Update()
+    {
+        // Jump
+        bool jump = Input.Jump && Grounded && _jumpFixTimer <= 0;
+
+        if (jump)
+        {
+            Rigidbody.AddForce(transform.up * jumpForce, ForceMode.Impulse);
+            _jumpFixTimer = 0.15f;
+        }
+
+        if (_jumpFixTimer > 0)
+        {
+            _jumpFixTimer -= Time.deltaTime;
+        }
+
+        // Move camera
+        if (Camera)
+        {
+            Vector2 cameraAxis = Input.CameraAxis;
+
+            cameraRot.x = -cameraAxis.y * sensitivity.y;
+            cameraRot.y = cameraAxis.x * sensitivity.x;
+
+            characterTargetRot *= Quaternion.Euler(0f, cameraRot.y, 0f);
+            cameraTargetRot *= Quaternion.Euler(cameraRot.x, 0f, 0f);
+
+            cameraTargetRot = ClampRotationAroundXAxis(cameraTargetRot);
+
+            transform.localRotation = Quaternion.Slerp(transform.localRotation, characterTargetRot, cameraSmooth * Time.deltaTime);
+            Camera.transform.localRotation = Quaternion.Slerp(Camera.transform.localRotation, cameraTargetRot, cameraSmooth * Time.deltaTime);
+        }
+    }
+
+    public void LockCursor(bool value)
+    {
+        // Lock cursor in game
+        if (value)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+    }
+
+    private Quaternion ClampRotationAroundXAxis(Quaternion q)
+    {
+        q.x /= q.w;
+        q.y /= q.w;
+        q.z /= q.w;
+        q.w = 1.0f;
+
+        float angleX = 2.0f * Mathf.Rad2Deg * Mathf.Atan(q.x);
+
+        angleX = Mathf.Clamp(angleX, -90, 90);
+
+        q.x = Mathf.Tan(0.5f * Mathf.Deg2Rad * angleX);
+
+        return q;
+    }
+
+    private void OnDrawGizmos()
+    {
+        // Ground check
+        if (CapsuleCollider)
+        {
+            Vector3 pos = (transform.position + CapsuleCollider.center) - (transform.up * ((CapsuleCollider.height / 2f) + groundHeightOffset));
+            float radius = CapsuleCollider.radius + groundRadiusOverride;
+
+            Gizmos.color = Grounded ? Color.green : Color.red;
+            Gizmos.DrawWireSphere(pos, radius);
+        }
+        else
+        {
+            CapsuleCollider = GetComponent<CapsuleCollider>();
+        }
+
+        // Normal check
+        Gizmos.color = Color.blue;
+        Gizmos.DrawRay(transform.position, -transform.up * normalCheckDistance);
+        Gizmos.DrawWireSphere(transform.position - transform.up * normalCheckDistance, normalCheckRadius);
+    }
+}
