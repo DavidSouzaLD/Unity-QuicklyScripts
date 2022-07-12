@@ -21,14 +21,18 @@ public class Sway : MonoBehaviour
 
     private void Update()
     {
+        // Movement response by camera
         Vector2 cameraAxis = Controller.GetInput.CameraAxis;
-
+        
+        // Apply sway
         if (cameraAxis != Vector2.zero)
         {
             transform.localPosition = Vector3.Lerp(transform.localPosition, new Vector3(-cameraAxis.x * amount, -cameraAxis.y * amount), smooth * Time.deltaTime);
             transform.localRotation = Quaternion.Slerp(transform.localRotation, Quaternion.Euler(-cameraAxis.x * amount, -cameraAxis.y * amount, transform.localRotation.z), smooth * Time.deltaTime);
         }
-        else if (transform.localPosition != startPos || transform.localRotation != startRot)
+        
+        // Reset
+        if (transform.localPosition != startPos || transform.localRotation != startRot)
         {
             transform.localPosition = Vector3.Lerp(transform.localPosition, startPos, resetSpeed * Time.deltaTime);
             transform.localRotation = Quaternion.Slerp(transform.localRotation, startRot, resetSpeed * Time.deltaTime);
